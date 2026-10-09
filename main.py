@@ -318,6 +318,11 @@ def write_atomic(path, text):
             os.fsync(f.fileno())
         if os.path.exists(path):
             shutil.copymode(path, tmp)
+        else:
+            # mkstemp makes 0600 files; give new files normal permissions.
+            umask = os.umask(0)
+            os.umask(umask)
+            os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, path)
     except BaseException:
         try:
