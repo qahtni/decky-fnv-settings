@@ -309,6 +309,15 @@ class TestPresets(Base):
                 for k in ("iSize W", "iSize H", "bFull Screen", "iPresentInterval"):
                     self.assertEqual(doc.get("Display", k), res_before.get("Display", k))
 
+    def test_preset_values_exposed_and_live_after_apply(self):
+        for pid, _, filename in M.PRESETS[:4]:
+            with self.subTest(preset=pid):
+                listed = {p["id"]: p for p in self.s.state()["presets"]}[pid]["values"]
+                self.assertEqual(listed, {k: M.to_number(v) for k, v in preset_entries(self.env, filename)})
+                live = self.s.apply_preset(pid)["values"]
+                for k, v in listed.items():
+                    self.assertAlmostEqual(live[k], v)
+
     def test_matching_none_when_modified(self):
         self.s.apply_preset("high")
         r = self.s.set_values({"Imagespace.iRadialBlurLevel": 0 if self.env.real else 0,
@@ -374,7 +383,7 @@ class TestCustom(Base):
     def test_custom_listed_and_matching(self):
         self.s.ensure_custom()
         r = self.s.state()
-        self.assertEqual(r["presets"][-1], {"id": "custom", "name": "Custom (yours)"})
+        self.assertEqual({k: r["presets"][-1][k] for k in ("id", "name")}, {"id": "custom", "name": "Custom (yours)"})
         self.assertEqual(r["matching"], "custom")
 
     def test_apply_custom_restores_full_setup(self):

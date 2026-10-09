@@ -65,7 +65,7 @@ SETTABLE = {
     "Display.iTexMipMapSkip": _choice(0, 1, 2),
     "Display.iMaxDecalsPerFrame": _int(0, 50),
     "Display.bDrawShadows": _bool(),
-    "Display.iShadowMapResolution": _choice(256, 512, 1024, 2048),
+    "Display.iShadowMapResolution": _choice(256, 512, 1024),
     "Display.iShadowFilter": _choice(0, 1, 2),
     "Display.iActorShadowCountInt": _int(0, 10),
     "Display.iActorShadowCountExt": _int(0, 10),
@@ -386,16 +386,13 @@ class Settings:
             entries = self.load_preset(game, filename)
             if not entries:
                 continue
-            presets.append({"id": pid, "name": name})
-            if matching is None and all(
-                    values.get(k) is not None and abs(float(values[k]) - float(v)) < 1e-6
-                    for k, v in entries):
+            preset_values = {k: to_number(v) for k, v in entries}
+            presets.append({"id": pid, "name": name, "values": preset_values})
+            same = all(values.get(k) is not None and abs(float(values[k]) - float(v)) < 1e-6
+                       for k, v in preset_values.items())
+            # The user's own preset wins when a shipped one matches too.
+            if same and (matching is None or pid == CUSTOM_ID):
                 matching = pid
-        # Prefer the user's own preset when it matches too.
-        if matching is not None and matching != CUSTOM_ID and any(p["id"] == CUSTOM_ID for p in presets):
-            entries = self.load_preset(game, "Custom.ini")
-            if all(values.get(k) is not None and abs(float(values[k]) - float(v)) < 1e-6 for k, v in entries):
-                matching = CUSTOM_ID
         return {
             "ok": True,
             "values": values,
