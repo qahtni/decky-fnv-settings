@@ -107,9 +107,19 @@ PRESET_ONLY = [
 ]
 
 # Everything the Custom preset snapshots, grouped by section in file order.
+# Everything the menu shows.
 MANAGED = list(SETTABLE) + PRESET_ONLY
-SECTION_ORDER = ["Display", "LOD", "TerrainManager", "Grass", "Imagespace",
-                 "Water", "BlurShaderHDR", "BlurShader"]
+
+# Settings no preset ever changes, the user's own included: like the launcher,
+# presets leave resolution, window mode, vsync and bloom alone.
+DISPLAY_ONLY = frozenset([
+    "Display.iSize W", "Display.iSize H", "Display.bFull Screen",
+    "Display.iPresentInterval", "BlurShader.bUseBlurShader",
+])
+
+# The official preset files, used as the template for the user's Custom.ini so it
+# has exactly their keys and layout.
+OFFICIAL_FILES = [f for pid, _, f in PRESETS if pid != CUSTOM_ID]
 
 _NUMBER = re.compile(r"^-?\d+(\.\d+)?$")
 
@@ -214,6 +224,12 @@ class IniDoc:
                 name, value = line.split("=", 1)
                 out.append((section, name.strip(), value.strip()))
         return out
+
+
+def _canonical(full):
+    """The MANAGED spelling of a "Section.key" name, matched case-insensitively."""
+    low = full.lower()
+    return next((m for m in MANAGED if m.lower() == low), None)
 
 
 def split_key(full):
@@ -358,16 +374,41 @@ class Settings:
             pass
         return None
 
+    def _official_template(self, game):
+        """IniDoc of the first official preset file found, or None."""
+        for filename in OFFICIAL_FILES:
+            path = self.preset_file(game, filename)
+            if path is not None:
+                return IniDoc.load(path)
+        return None
+
+    def official_keys(self, game):
+        """Canonical keys the official presets set, in file order."""
+        template = self._official_template(game)
+        if template is None:
+            return [k for k in MANAGED if k not in DISPLAY_ONLY]
+        keys = []
+        for section, key, _ in template.entries():
+            canon = _canonical("%s.%s" % (section, key))
+            if canon is not None and canon not in DISPLAY_ONLY and canon not in keys:
+                keys.append(canon)
+        return keys
+
     def load_preset(self, game, filename):
         path = self.preset_file(game, filename)
         if path is None:
             return None
+        # The user's preset can only hold what the official presets hold, so an older
+        # Custom.ini with resolution in it can't change resolution.
+        allowed = set(self.official_keys(game)) if filename == "Custom.ini" else None
         entries = []
         for section, key, value in IniDoc.load(path).entries():
-            full = "%s.%s" % (section, key)
-            canon = next((m for m in MANAGED if m.lower() == full.lower()), None)
-            if canon is not None and to_number(value) is not None:
-                entries.append((canon, value))
+            canon = _canonical("%s.%s" % (section, key))
+            if canon is None or canon in DISPLAY_ONLY or to_number(value) is None:
+                continue
+            if allowed is not None and canon not in allowed:
+                continue
+            entries.append((canon, value))
         return entries
 
     def _check_writable(self):
@@ -441,22 +482,33 @@ class Settings:
         return self.state()
 
     def save_custom(self):
+        """Write Custom.ini: an official preset file with the current values in it."""
         prefs, game = self.paths()
         if game is None:
             raise SettingsError("Game folder not found")
         doc = IniDoc.load(prefs)
-        lines = []
-        for section in SECTION_ORDER:
-            keys = [k for k in MANAGED if split_key(k)[0] == section]
-            rows = []
-            for full in keys:
-                v = doc.get(*split_key(full))
-                if v is not None and to_number(v) is not None:
-                    rows.append("%s=%s" % (split_key(full)[1], v))
-            if rows:
-                lines += ["", "[%s]" % section] + rows
+        template = self._official_template(game)
+        if template is None:
+            raise SettingsError("No official preset files found in the game folder")
+        lines, section = [], None
+        for line in template.lines:
+            header = IniDoc._header(line)
+            if header is not None:
+                section = line.strip()[1:-1].strip()
+            elif section is not None and IniDoc._key(line) is not None:
+                key = line.split("=", 1)[0]
+                canon = _canonical("%s.%s" % (section, key.strip()))
+                if canon is None or canon in DISPLAY_ONLY:
+                    continue
+                value = doc.get(section, key.strip())
+                if value is None or to_number(value) is None:
+                    continue  # not in the prefs: leave it to the game's default
+                line = "%s=%s" % (key, value)
+            lines.append(line)
+        out = IniDoc("")
+        out.lines, out.newline, out.trailing_newline = lines, template.newline, template.trailing_newline
         path = self.preset_file(game, "Custom.ini") or os.path.join(game, "Custom.ini")
-        write_atomic(path, "\r\n".join(lines) + "\r\n")
+        write_atomic(path, out.text())
         return self.state()
 
     def ensure_custom(self):
@@ -467,7 +519,10 @@ class Settings:
             return False
         if game is None or self.preset_file(game, "Custom.ini") is not None:
             return False
-        self.save_custom()
+        try:
+            self.save_custom()
+        except SettingsError:
+            return False  # no official presets to model it on
         return True
 
 

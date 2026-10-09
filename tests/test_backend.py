@@ -362,18 +362,38 @@ class TestCustom(Base):
             raw = f.read()
         self.assertNotIn(b"\n", raw.replace(b"\r\n", b""))
         entries = preset_entries(self.env, "Custom.ini")
-        present = [m for m in M.MANAGED if before.get(*M.split_key(m)) is not None]
-        self.assertEqual(sorted(k for k, _ in entries), sorted(present))
+        official = self.s.official_keys(self.env.game)
+        present = [k for k in official if before.get(*M.split_key(k)) is not None]
+        self.assertEqual([k for k, _ in entries], present)
         for full, value in entries:
             self.assertEqual(before.get(*M.split_key(full)), value)
         if self.env.real:
-            self.assertEqual(len(entries), 46)
+            self.assertEqual(len(entries), 41)
         # Not recreated or overwritten.
         with open(self.custom_path(), "ab") as f:
             f.write(b"; marker\r\n")
         self.assertFalse(self.s.ensure_custom())
         with open(self.custom_path(), "rb") as f:
             self.assertTrue(f.read().endswith(b"; marker\r\n"))
+
+    def test_custom_has_exactly_the_official_keys_and_no_display_settings(self):
+        self.s.ensure_custom()
+        names = [(sec.lower(), key.lower()) for sec, key, _ in M.IniDoc.load(self.custom_path()).entries()]
+        for full in M.DISPLAY_ONLY:
+            sec, key = M.split_key(full)
+            self.assertNotIn((sec.lower(), key.lower()), names, full)
+        official = [(sec.lower(), key.lower()) for sec, key, _ in
+                    M.IniDoc.load(os.path.join(self.env.game, "low.ini")).entries()]
+        present = M.IniDoc.load(self.env.prefs)
+        self.assertEqual(names, [n for n in official if present.get(*n) is not None])
+
+    def test_custom_saved_from_an_official_preset_is_identical_to_it(self):
+        for pid, _, filename in M.PRESETS[:4]:
+            with self.subTest(preset=pid):
+                self.s.apply_preset(pid)
+                self.s.save_custom()
+                with open(self.custom_path(), "rb") as a, open(os.path.join(self.env.game, filename), "rb") as b:
+                    self.assertEqual(a.read(), b.read())
 
     def test_creating_custom_does_not_touch_prefs(self):
         before = self.env.prefs_bytes()
@@ -394,19 +414,49 @@ class TestCustom(Base):
         self.assertEqual({k: r["presets"][-1][k] for k in ("id", "name")}, {"id": "custom", "name": "Custom (yours)"})
         self.assertEqual(r["matching"], "custom")
 
-    def test_apply_custom_restores_full_setup(self):
+    def test_apply_custom_restores_settings_but_never_resolution(self):
         self.s.ensure_custom()
         original = self.s.state()["values"]
         self.s.apply_preset("low")
-        self.s.set_values({"Display.iSize W": 2560, "Display.iSize H": 1440,
-                           "Display.bFull Screen": True, "Display.iPresentInterval": True})
-        self.assertNotEqual(self.s.state()["values"], original)
+        display = {"Display.iSize W": 2560, "Display.iSize H": 1440,
+                   "Display.bFull Screen": True, "Display.iPresentInterval": True,
+                   "BlurShader.bUseBlurShader": True}
+        self.s.set_values(display)
         r = self.s.apply_preset("custom")
-        # Keys absent from the prefs when Custom was made can't be restored; the
-        # real prefs has all of them (checked in test_created_once_from_current).
-        present = {k: v for k, v in original.items() if v is not None}
-        self.assertEqual({k: r["values"][k] for k in present}, present)
+        for k, v in original.items():
+            if v is None:
+                continue
+            if k in M.DISPLAY_ONLY:
+                self.assertEqual(r["values"][k], int(display[k]), k)
+            else:
+                self.assertEqual(r["values"][k], v, k)
         self.assertEqual(r["matching"], "custom")
+
+    def test_older_custom_with_resolution_cannot_change_it(self):
+        self.s.ensure_custom()
+        with open(self.custom_path(), "ab") as f:
+            f.write(b"\r\n[Display]\r\niSize W=3840\r\niSize H=2160\r\nbFull Screen=1\r\n"
+                    b"iPresentInterval=1\r\n[BlurShader]\r\nbUseBlurShader=1\r\n")
+        before = M.IniDoc.load(self.env.prefs)
+        self.s.apply_preset("custom")
+        after = M.IniDoc.load(self.env.prefs)
+        for full in M.DISPLAY_ONLY:
+            self.assertEqual(after.get(*M.split_key(full)), before.get(*M.split_key(full)), full)
+        self.assertEqual(self.s.state()["matching"], "custom")
+
+    def test_no_preset_touches_display_settings(self):
+        self.s.ensure_custom()
+        for pid, _, filename in M.PRESETS:
+            with self.subTest(preset=pid):
+                keys = {k for k, _ in preset_entries(self.env, filename)}
+                self.assertFalse(keys & M.DISPLAY_ONLY)
+
+    def test_no_official_presets_means_no_custom(self):
+        for f in SHIPPED:
+            os.remove(os.path.join(self.env.game, f))
+        self.assertFalse(self.s.ensure_custom())
+        self.assertFalse(os.path.exists(self.custom_path()))
+        self.assertFalse(M._result(self.s.save_custom)["ok"])
 
     def test_save_then_apply_round_trips(self):
         self.s.ensure_custom()

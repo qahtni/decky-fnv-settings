@@ -203,26 +203,29 @@ const modals = [];
 let backend;
 
 function freshBackend() {
+  // Steam Deck starting point: 1280×800 with 2x MSAA on the game's official High preset.
   const values = {
-    "Display.iSize W": 1280, "Display.iSize H": 800, "Display.iMultiSample": 4, "Display.iWaterMultisamples": 4,
-    "Display.iMaxAnisotropy": 8, "Display.bFull Screen": 0, "Display.iPresentInterval": 0,
+    "Display.iSize W": 1280, "Display.iSize H": 800, "Display.iMultiSample": 2, "Display.iWaterMultisamples": 2,
+    "Display.iMaxAnisotropy": 8, "Display.bFull Screen": 1, "Display.iPresentInterval": 1,
     "BlurShaderHDR.bDoHighDynamicRange": 1, "BlurShader.bUseBlurShader": 0, "Display.iTexMipMapSkip": 0,
-    "Display.bTransparencyMultisampling": 1, "Imagespace.bDoDepthOfField": 1, "Imagespace.iRadialBlurLevel": 2,
+    "Display.bTransparencyMultisampling": 1, "Imagespace.bDoDepthOfField": 1, "Imagespace.iRadialBlurLevel": 1,
     "Display.iMaxDecalsPerFrame": 10, "Grass.b30GrassVS": 1, "Display.bDrawShadows": 1,
-    "Display.iShadowMapResolution": 1024, "Display.iShadowFilter": 2, "Display.iActorShadowCountInt": 4,
+    "Display.iShadowMapResolution": 512, "Display.iShadowFilter": 2, "Display.iActorShadowCountInt": 4,
     "Display.iActorShadowCountExt": 2, "Water.bUseWaterRefractions": 1, "Water.bUseWaterReflections": 1,
     "Water.bUseWaterReflectionBlur": 1, "Water.bUseWaterDisplacements": 1, "Water.bUseWaterDepth": 1,
-    "Water.bReflectExplosions": 0, "Water.bForceHighDetailReflections": 1, "Water.bAutoWaterSilhouetteReflections": 0,
-    "Water.iWaterReflectWidth": 1024, "Water.iWaterReflectHeight": 1024, "Water.iWaterBlurAmount": 4,
-    "LOD.fLODFadeOutMultActors": 15, "LOD.fLODFadeOutMultObjects": 7.5, "LOD.fLODFadeOutMultItems": 4.5,
+    "Water.bReflectExplosions": 1, "Water.bForceHighDetailReflections": 0, "Water.bAutoWaterSilhouetteReflections": 1,
+    "Water.iWaterReflectWidth": 512, "Water.iWaterReflectHeight": 512, "Water.iWaterBlurAmount": 2,
+    "LOD.fLODFadeOutMultActors": 6, "LOD.fLODFadeOutMultObjects": 7.5, "LOD.fLODFadeOutMultItems": 4.5,
     "Grass.fGrassStartFadeDistance": 5000, "Display.fSpecularLODStartFade": 1000, "Display.fLightLODStartFade": 2500,
     "Display.fShadowLODStartFade": 460, "TerrainManager.fTreeLoadDistance": 26000,
     "TerrainManager.fBlockLoadDistanceLow": 50000, "TerrainManager.fSplitDistanceMult": 1,
   };
+
+
   return {
     values,
     gameRunning: false,
-    matching: "custom",
+    matching: null, // High with 2x instead of 4x MSAA
     fail: null,
     state() {
       return {
@@ -323,15 +326,16 @@ test("current values are shown", async () => {
   assert.equal(res.props.rgOptions[res.props.selectedOption].label, "1280×800 (16:10)");
   assert.equal(res.props.rgOptions.filter((o) => o.label.includes("16:9")).length, 6);
   const aa = byLabel("DropdownItem", "Anti-aliasing");
-  assert.equal(aa.props.rgOptions[aa.props.selectedOption].label, "4x MSAA");
+  assert.equal(aa.props.rgOptions[aa.props.selectedOption].label, "2x MSAA");
   const af = byLabel("DropdownItem", "Anisotropic filtering");
   assert.equal(af.props.rgOptions[af.props.selectedOption].label, "8x");
-  assert.equal(byLabel("ToggleField", "Windowed").props.checked, true);
-  assert.equal(byLabel("ToggleField", "VSync").props.checked, false);
+  assert.equal(byLabel("ToggleField", "Windowed").props.checked, false);
+  assert.equal(byLabel("ToggleField", "VSync").props.checked, true);
   const fx = byLabel("DropdownItem", "Screen effect");
   assert.equal(fx.props.rgOptions[fx.props.selectedOption].label, "HDR");
   const preset = byLabel("DropdownItem", "Preset");
-  assert.equal(preset.props.selectedOption, "custom");
+  assert.equal(preset.props.selectedOption, null);
+  assert.equal(preset.props.strDefaultLabel, "Modified");
   assert.equal(preset.props.rgOptions.at(-1).label, "Custom (yours)");
   unmount();
 });
@@ -434,11 +438,11 @@ test("game running disables everything", async () => {
 test("backend errors become toasts and the panel reloads", async () => {
   await mountPlugin();
   backend.fail = "Close Fallout: New Vegas first.";
-  byLabel("ToggleField", "VSync").props.onChange(true);
+  byLabel("ToggleField", "VSync").props.onChange(false);
   await flush();
   assert.equal(toasts.at(-1).body, "Close Fallout: New Vegas first.");
   assert.equal(calls.at(-1)[0], "get_state");
-  assert.equal(byLabel("ToggleField", "VSync").props.checked, false);
+  assert.equal(byLabel("ToggleField", "VSync").props.checked, true);
   unmount();
 });
 
@@ -603,7 +607,7 @@ test("sliders stop at the real preset values, lowest to highest", async () => {
   await mountPlugin();
   await showAll();
   const expect = {
-    "Actor fade": [["Low/Med", "High", "V.High"], "15"],
+    "Actor fade": [["Low/Med", "High", "V.High"], "6"],
     "Object fade": [["Low/Med", "High", "V.High"], "7.5"],
     "Item fade": [["Low", "Med", "High", "V.High"], "4.5"],
     "Grass fade": [["Low", "Med", "High", "V.High"], "5000"],
@@ -616,7 +620,7 @@ test("sliders stop at the real preset values, lowest to highest", async () => {
     "Decals per frame": [["Low", "Med", "High/V.High"], "10"],
     "Interior actor shadows": [["Low", "Med/High", "V.High"], "4"],
     "Exterior actor shadows": [["Low/Med/High", "V.High"], "2"],
-    "Reflection blur amount": [["Low/Med", "High", "V.High"], "4"],
+    "Reflection blur amount": [["Low/Med", "High", "V.High"], "2"],
   };
   for (const [label, [stops, value]] of Object.entries(expect)) {
     const sl = slider(label);
@@ -625,8 +629,9 @@ test("sliders stop at the real preset values, lowest to highest", async () => {
     assert.equal(sl.props.label.split(": ")[1], value, label);
     assert.equal(stopsOf(sl)[sl.props.value].length > 0, true);
   }
-  assert.equal(slider("Actor fade").props.value, 2);
-  assert.equal(slider("Object fade").props.value, 1);
+  assert.equal(slider("Actor fade").props.value, 1);
+  assert.equal(slider("Item fade").props.value, 2);
+  assert.equal(slider("Grass fade").props.value, 2);
   assert.equal(slider("Actor fade").props.description, "Low 2.5 · Med 2.5 · High 6 · V.High 15");
   assert.equal(byLabel("DropdownItem", "Anti-aliasing").props.description, "Low Off · Med Off · High 4x MSAA · V.High 4x MSAA");
   assert.equal(byLabel("ToggleField", "Shadows").props.description, "Low off · Med on · High on · V.High on");
