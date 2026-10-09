@@ -380,6 +380,14 @@ class TestCustom(Base):
         self.s.ensure_custom()
         self.assertEqual(self.env.prefs_bytes(), before)
 
+    def test_new_custom_file_has_normal_permissions(self):
+        old = os.umask(0o022)
+        try:
+            self.s.ensure_custom()
+        finally:
+            os.umask(old)
+        self.assertEqual(os.stat(self.custom_path()).st_mode & 0o777, 0o644)
+
     def test_custom_listed_and_matching(self):
         self.s.ensure_custom()
         r = self.s.state()

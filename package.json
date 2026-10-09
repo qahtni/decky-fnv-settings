@@ -1,6 +1,6 @@
 {
   "name": "fnv-settings",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Fallout: New Vegas graphics settings for Decky Loader",
   "type": "module",
   "scripts": {
