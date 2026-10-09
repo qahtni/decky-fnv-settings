@@ -1,0 +1,11 @@
+{
+  "name": "FNV Settings",
+  "author": "aqahtani",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["fallout", "settings", "graphics"],
+    "description": "Fallout: New Vegas graphics settings and presets from Game Mode, replacing the game's launcher.",
+    "image": ""
+  }
+}
