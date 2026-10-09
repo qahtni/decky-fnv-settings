@@ -38,5 +38,13 @@
         "react-dom"
       ]
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qahtni/decky-fnv-settings.git"
+  },
+  "homepage": "https://github.com/qahtni/decky-fnv-settings#readme",
+  "bugs": {
+    "url": "https://github.com/qahtni/decky-fnv-settings/issues"
   }
 }
