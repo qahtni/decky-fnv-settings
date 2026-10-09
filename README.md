@@ -8,9 +8,11 @@ It edits `FalloutPrefs.ini` in the game's Proton prefix (Steam app 22380).
 
 ## Features
 
-- **Presets:** the game folder's Low / Medium / High / Very High, plus **Custom (yours)**,
-  a `Custom.ini` created from your current settings the first time the plugin loads.
-  **Save current as Custom** updates it. Applying a preset updates every control live.
+- **Presets:** the game's official Low / Medium / High / Very High preset files, plus
+  **Custom (yours)**: a `Custom.ini` in the game folder with exactly the official presets'
+  settings and layout, filled with your values. It's created the first time the plugin loads,
+  and **Save current as Custom** updates it. Applying a preset updates every control live.
+- **Presets never change resolution,** window mode, VSync or bloom, same as the launcher.
 - **Settings:** resolution (common 16:10 and 16:9 sizes), anti-aliasing, anisotropic
   filtering, windowed, VSync, screen effect (None / Bloom / HDR), detail, shadows,
   water, and fade distances.
