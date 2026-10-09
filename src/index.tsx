@@ -18,7 +18,7 @@ type Values = Record<string, number | null>;
 interface State {
   ok: true;
   values: Values;
-  presets: { id: string; name: string }[];
+  presets: { id: string; name: string; values?: Values }[];
   matching: string | null;
   gameRunning: boolean;
   resolutions: [number, number][];
@@ -68,6 +68,8 @@ interface DropdownOpt {
 type Control =
   | { kind: "dropdown"; label: string; options: (v: Values, s: State) => DropdownOpt[]; selected?: (v: Values) => number }
   | { kind: "toggle"; label: string; key: string; invert?: boolean }
+  // min/max/step are the backend's limits, used only when no preset values are available;
+  // normally the slider's stops are the shipped presets' values.
   | { kind: "slider"; label: string; key: string; min: number; max: number; step: number };
 
 interface Section {
@@ -159,7 +161,7 @@ const SECTIONS: Section[] = [
       {
         kind: "dropdown",
         label: "Shadow quality",
-        options: opts([D + "iShadowMapResolution"], [["Low (256)", 256], ["Medium (512)", 512], ["High (1024)", 1024], ["Ultra (2048)", 2048]]),
+        options: opts([D + "iShadowMapResolution"], [["Low (256)", 256], ["Medium (512)", 512], ["High (1024)", 1024]]),
       },
       {
         kind: "dropdown",
@@ -206,6 +208,41 @@ const SECTIONS: Section[] = [
   },
 ];
 
+const SHORT: Record<string, string> = { low: "Low", medium: "Med", high: "High", veryhigh: "V.High" };
+const fmt = (n: number) => String(Number(n.toFixed(2)));
+
+interface Stop {
+  value: number;
+  label: string;
+}
+
+const same = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+
+// Slider stops are the real preset values, lowest preset to highest. Presets sharing a
+// value share a stop ("Low/Med"); a current value no preset uses gets a "Yours" stop.
+function presetStops(
+  key: string,
+  presets: { id: string; values?: Values }[],
+  cur: number | null | undefined,
+): Stop[] {
+  const stops: Stop[] = [];
+  for (const p of presets) {
+    const val = p.values?.[key];
+    if (typeof val !== "number" || !isFinite(val)) continue;
+    const hit = stops.find((st) => same(st.value, val));
+    if (hit) hit.label += "/" + SHORT[p.id];
+    else stops.push({ value: val, label: SHORT[p.id] });
+  }
+  if (typeof cur === "number" && isFinite(cur) && !stops.some((st) => same(st.value, cur))) {
+    stops.push({ value: cur, label: "Yours" });
+  }
+  return stops.sort((a, b) => a.value - b.value);
+}
+
+function snap(n: number, min: number, step: number): number {
+  return Number((Math.round((n - min) / step) * step + min).toFixed(4));
+}
+
 function selectedIndex(c: Extract<Control, { kind: "dropdown" }>, list: DropdownOpt[], v: Values): number {
   if (c.selected) return c.selected(v);
   return list.findIndex((o) => Object.entries(o.set).every(([k, val]) => v[k] === val));
@@ -246,14 +283,11 @@ function Content() {
 
   useEffect(() => {
     mounted.current = true;
+    // No polling: the game check runs when the panel opens and on every write
+    // (the backend refuses writes while the game runs), so idle cost is zero.
     refresh();
-    // Notice when the game starts or stops while the panel is open.
-    const id = setInterval(() => {
-      if (Object.keys(timers.current).length === 0) refresh();
-    }, 5000);
     return () => {
       mounted.current = false;
-      clearInterval(id);
       Object.values(timers.current).forEach(clearTimeout);
     };
   }, []);
@@ -289,7 +323,7 @@ function Content() {
     clearTimeout(timers.current[key]);
     timers.current[key] = setTimeout(async () => {
       delete timers.current[key];
-      await write({ [key]: value }, `${label}: ${value}`);
+      await write({ [key]: value }, `${label}: ${fmt(value)}`);
       if (!mounted.current) return;
       setSliders((s) => {
         const { [key]: _, ...rest } = s;
@@ -298,12 +332,25 @@ function Content() {
     }, 600);
   };
 
+  const shipped = state.presets.filter((p) => p.id in SHORT && p.values && typeof p.values === "object");
+  // "Low 2.5 · Med 2.5 · High 6 · V.High 15": what each shipped preset uses for a control.
+  const describe = (label: (pv: Values) => string | null) => {
+    const parts = shipped.map((p) => {
+      const l = label(p.values as Values);
+      return l === null ? null : `${SHORT[p.id]} ${l}`;
+    });
+    return parts.every((x) => x === null) ? undefined : parts.filter(Boolean).join(" · ");
+  };
+
   const render = (c: Control) => {
     if (c.kind === "toggle") {
       const on = Boolean(v[c.key]) !== Boolean(c.invert);
       return (
         <ToggleField
           label={c.label}
+          description={describe((pv) =>
+            typeof pv[c.key] === "number" ? (Boolean(pv[c.key]) !== Boolean(c.invert) ? "on" : "off") : null,
+          )}
           checked={on}
           disabled={locked}
           onChange={(checked: boolean) => write({ [c.key]: checked !== Boolean(c.invert) }, `${c.label}: ${checked ? "on" : "off"}`)}
@@ -311,17 +358,45 @@ function Content() {
       );
     }
     if (c.kind === "slider") {
-      const raw = sliders[c.key] ?? v[c.key] ?? c.min;
+      const cur = sliders[c.key] ?? v[c.key];
+      const stops = presetStops(c.key, shipped, v[c.key]);
+      const description = describe((pv) => (typeof pv[c.key] === "number" ? fmt(pv[c.key] as number) : null));
+      if (stops.length >= 2) {
+        const at = typeof cur === "number" ? stops.findIndex((st) => same(st.value, cur)) : -1;
+        return (
+          <SliderField
+            label={typeof cur === "number" ? `${c.label}: ${fmt(cur)}` : c.label}
+            description={description}
+            value={Math.max(0, at)}
+            min={0}
+            max={stops.length - 1}
+            step={1}
+            notchCount={stops.length}
+            notchLabels={stops.map((st, i) => ({ notchIndex: i, label: st.label, value: i }))}
+            notchTicksVisible
+            disabled={locked}
+            onChange={(i: number) => {
+              const st = stops[Math.round(i)];
+              if (st && !(typeof cur === "number" && same(st.value, cur))) slide(c.key, c.label, st.value);
+            }}
+          />
+        );
+      }
+      // Presets unavailable: plain slider over the allowed range.
+      const raw = typeof cur === "number" ? cur : c.min;
       return (
         <SliderField
           label={c.label}
+          description={description}
           value={Math.min(c.max, Math.max(c.min, raw))}
           min={c.min}
           max={c.max}
           step={c.step}
           showValue
           disabled={locked}
-          onChange={(n: number) => slide(c.key, c.label, n)}
+          onChange={(n: number) => {
+            if (typeof n === "number" && isFinite(n)) slide(c.key, c.label, Math.min(c.max, Math.max(c.min, snap(n, c.min, c.step))));
+          }}
         />
       );
     }
@@ -330,6 +405,10 @@ function Content() {
     return (
       <DropdownItem
         label={c.label}
+        description={describe((pv) => {
+          const i = selectedIndex(c, list, pv);
+          return i >= 0 && list[i] ? list[i].label : null;
+        })}
         rgOptions={list.map((o, i) => ({ data: i, label: o.label }))}
         selectedOption={idx >= 0 ? idx : null}
         strDefaultLabel="Custom value"
@@ -349,6 +428,11 @@ function Content() {
       {locked && (
         <PanelSection>
           <PanelSectionRow>Close New Vegas first. The game overwrites these settings when it exits.</PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem layout="below" onClick={refresh}>
+              Check again
+            </ButtonItem>
+          </PanelSectionRow>
         </PanelSection>
       )}
       <PanelSection title="Preset">

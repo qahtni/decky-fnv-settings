@@ -170,6 +170,33 @@ const button = (label) => {
 // ------------------------------------------------------------ fake backend
 
 const RES = [[1280, 800], [1440, 900], [1680, 1050], [1920, 1200], [2560, 1600], [1280, 720], [1366, 768], [1600, 900], [1920, 1080], [2560, 1440], [3840, 2160]];
+// Values from the game's shipped preset files (subset).
+const PRESET_VALUES = {
+  low: { "Display.iMultiSample": 1, "Display.iWaterMultisamples": 1, "Display.iMaxAnisotropy": 1, "Display.iMaxDecalsPerFrame": 2,
+    "Display.iActorShadowCountInt": 2, "Display.iActorShadowCountExt": 2, "Display.bDrawShadows": 0, "Display.iShadowMapResolution": 256,
+    "LOD.fLODFadeOutMultActors": 2.5, "LOD.fLODFadeOutMultObjects": 2.5, "LOD.fLODFadeOutMultItems": 3, "Grass.fGrassStartFadeDistance": 0,
+    "Display.fSpecularLODStartFade": 200, "Display.fLightLODStartFade": 200, "Display.fShadowLODStartFade": 100,
+    "TerrainManager.fTreeLoadDistance": 0, "TerrainManager.fBlockLoadDistanceLow": 25000, "TerrainManager.fSplitDistanceMult": 0.75,
+    "Water.iWaterBlurAmount": 0, "BlurShaderHDR.bDoHighDynamicRange": 0 },
+  medium: { "Display.iMultiSample": 1, "Display.iWaterMultisamples": 1, "Display.iMaxAnisotropy": 1, "Display.iMaxDecalsPerFrame": 5,
+    "Display.iActorShadowCountInt": 4, "Display.iActorShadowCountExt": 2, "Display.bDrawShadows": 1, "Display.iShadowMapResolution": 256,
+    "LOD.fLODFadeOutMultActors": 2.5, "LOD.fLODFadeOutMultObjects": 2.5, "LOD.fLODFadeOutMultItems": 3.5, "Grass.fGrassStartFadeDistance": 3000,
+    "Display.fSpecularLODStartFade": 500, "Display.fLightLODStartFade": 1000, "Display.fShadowLODStartFade": 200,
+    "TerrainManager.fTreeLoadDistance": 25000, "TerrainManager.fBlockLoadDistanceLow": 50000, "TerrainManager.fSplitDistanceMult": 1,
+    "Water.iWaterBlurAmount": 0, "BlurShaderHDR.bDoHighDynamicRange": 1 },
+  high: { "Display.iMultiSample": 4, "Display.iWaterMultisamples": 4, "Display.iMaxAnisotropy": 8, "Display.iMaxDecalsPerFrame": 10,
+    "Display.iActorShadowCountInt": 4, "Display.iActorShadowCountExt": 2, "Display.bDrawShadows": 1, "Display.iShadowMapResolution": 512,
+    "LOD.fLODFadeOutMultActors": 6, "LOD.fLODFadeOutMultObjects": 7.5, "LOD.fLODFadeOutMultItems": 4.5, "Grass.fGrassStartFadeDistance": 5000,
+    "Display.fSpecularLODStartFade": 1000, "Display.fLightLODStartFade": 2500, "Display.fShadowLODStartFade": 460,
+    "TerrainManager.fTreeLoadDistance": 26000, "TerrainManager.fBlockLoadDistanceLow": 50000, "TerrainManager.fSplitDistanceMult": 1,
+    "Water.iWaterBlurAmount": 2, "BlurShaderHDR.bDoHighDynamicRange": 1 },
+  veryhigh: { "Display.iMultiSample": 4, "Display.iWaterMultisamples": 4, "Display.iMaxAnisotropy": 15, "Display.iMaxDecalsPerFrame": 10,
+    "Display.iActorShadowCountInt": 6, "Display.iActorShadowCountExt": 6, "Display.bDrawShadows": 1, "Display.iShadowMapResolution": 1024,
+    "LOD.fLODFadeOutMultActors": 15, "LOD.fLODFadeOutMultObjects": 15, "LOD.fLODFadeOutMultItems": 15, "Grass.fGrassStartFadeDistance": 7000,
+    "Display.fSpecularLODStartFade": 2000, "Display.fLightLODStartFade": 3500, "Display.fShadowLODStartFade": 1000,
+    "TerrainManager.fTreeLoadDistance": 40000, "TerrainManager.fBlockLoadDistanceLow": 50000, "TerrainManager.fSplitDistanceMult": 1.5,
+    "Water.iWaterBlurAmount": 4, "BlurShaderHDR.bDoHighDynamicRange": 1 },
+};
 const calls = [];
 const toasts = [];
 const modals = [];
@@ -201,7 +228,7 @@ function freshBackend() {
       return {
         ok: true, values: { ...this.values }, matching: this.matching, gameRunning: this.gameRunning, resolutions: RES,
         presets: [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["veryhigh", "Very High"], ["custom", "Custom (yours)"]]
-          .map(([id, name]) => ({ id, name })),
+          .map(([id, name]) => ({ id, name, values: PRESET_VALUES[id] ?? { ...this.values } })),
       };
     },
     call(name, args) {
@@ -211,6 +238,7 @@ function freshBackend() {
         for (const [k, v] of Object.entries(args[0])) this.values[k] = typeof v === "boolean" ? Number(v) : v;
         this.matching = null;
       } else if (name === "apply_preset") {
+        Object.assign(this.values, PRESET_VALUES[args[0]] ?? {});
         this.matching = args[0];
       }
       return this.state();
@@ -283,7 +311,9 @@ test("all sections render, collapsed except Display", async () => {
   await flush();
   for (const label of ["Texture size", "Shadow quality", "Reflection size"]) byLabel("DropdownItem", label);
   for (const label of ["Refractions", "Shadows", "Depth of field"]) byLabel("ToggleField", label);
-  for (const label of ["Actor fade", "Land quality", "Decals per frame"]) byLabel("SliderField", label);
+  for (const label of ["Actor fade", "Land quality", "Decals per frame"]) {
+    assert.ok(all("SliderField").some((n) => n.props.label.startsWith(label + ": ")), label);
+  }
   unmount();
 });
 
@@ -339,7 +369,8 @@ test("dropdowns write the right keys", async () => {
   for (const b of all("ButtonItem").filter((n) => n.props.children === "Show")) b.props.onClick();
   await flush();
   assert.deepEqual(await pick("Texture size", "Small"), { "Display.iTexMipMapSkip": 2 });
-  assert.deepEqual(await pick("Shadow quality", "Ultra (2048)"), { "Display.iShadowMapResolution": 2048 });
+  assert.deepEqual(await pick("Shadow quality", "Low (256)"), { "Display.iShadowMapResolution": 256 });
+  assert.deepEqual(byLabel("DropdownItem", "Shadow quality").props.rgOptions.map((o) => o.label), ["Low (256)", "Medium (512)", "High (1024)"]);
   assert.deepEqual(await pick("Reflection size", "512"), { "Water.iWaterReflectWidth": 512, "Water.iWaterReflectHeight": 512 });
   // UI reflects the new values.
   const res = byLabel("DropdownItem", "Resolution");
@@ -359,37 +390,6 @@ test("toggles write booleans, Windowed is inverted", async () => {
   byLabel("ToggleField", "VSync").props.onChange(true);
   await flush();
   assert.deepEqual(lastSet(), { "Display.iPresentInterval": true });
-  unmount();
-});
-
-test("sliders write once after settling", async () => {
-  await mountPlugin();
-  for (const b of all("ButtonItem").filter((n) => n.props.children === "Show")) b.props.onClick();
-  await flush();
-  const before = calls.length;
-  for (const v of [10, 11, 12.5]) {
-    byLabel("SliderField", "Actor fade").props.onChange(v);
-    await flush();
-  }
-  assert.equal(byLabel("SliderField", "Actor fade").props.value, 12.5);
-  assert.equal(calls.length, before);
-  await new Promise((r) => setTimeout(r, 700));
-  await flush();
-  const writes = calls.slice(before).filter(([n]) => n === "set_values");
-  assert.deepEqual(writes, [["set_values", [{ "LOD.fLODFadeOutMultActors": 12.5 }]]]);
-  assert.equal(byLabel("SliderField", "Actor fade").props.value, 12.5);
-  const lq = byLabel("SliderField", "Land quality");
-  assert.deepEqual([lq.props.min, lq.props.max], [0.5, 2]);
-  unmount();
-});
-
-test("slider values outside range are clamped for display", async () => {
-  await mountPlugin();
-  backend.values["TerrainManager.fBlockLoadDistanceLow"] = 125000;
-  await remount();
-  for (const b of all("ButtonItem").filter((n) => n.props.children === "Show")) b.props.onClick();
-  await flush();
-  assert.equal(byLabel("SliderField", "Distant LOD").props.value, 100000);
   unmount();
 });
 
@@ -459,18 +459,42 @@ test("load error shows message and retry", async () => {
   unmount();
 });
 
-test("polling refreshes state while open and stops on unmount", async () => {
-  await mountPlugin();
-  backend.gameRunning = true;
-  await new Promise((r) => setTimeout(r, 5200));
-  await flush();
-  assert.ok(text(tree).includes("Close New Vegas first"));
-  unmount();
-  const n = calls.length;
-  await new Promise((r) => setTimeout(r, 5200));
-  assert.equal(calls.length, n);
+test("no polling: idle panel makes no calls and sets no intervals", async () => {
+  const realInterval = globalThis.setInterval;
+  let intervals = 0;
+  globalThis.setInterval = (...a) => (intervals++, realInterval(...a));
+  try {
+    await mountPlugin();
+    const n = calls.length;
+    assert.equal(n, 1); // the one get_state on open
+    await new Promise((r) => setTimeout(r, 6000));
+    await flush();
+    assert.equal(calls.length, n);
+    assert.equal(intervals, 0);
+  } finally {
+    globalThis.setInterval = realInterval;
+    unmount();
+  }
 });
 
+test("game started while open: next change is refused and the panel locks", async () => {
+  await mountPlugin();
+  backend.gameRunning = true;
+  backend.fail = "Close Fallout: New Vegas first. It overwrites these settings when it exits.";
+  byLabel("ToggleField", "VSync").props.onChange(true);
+  await flush();
+  assert.equal(toasts.at(-1).body, backend.fail);
+  assert.ok(text(tree).includes("Close New Vegas first"));
+  assert.equal(byLabel("ToggleField", "VSync").props.disabled, true);
+  // After quitting, "Check again" unlocks.
+  backend.gameRunning = false;
+  backend.fail = null;
+  button("Check again").props.onClick();
+  await flush();
+  assert.ok(!text(tree).includes("Close New Vegas first"));
+  assert.equal(byLabel("ToggleField", "VSync").props.disabled, false);
+  unmount();
+});
 test("rendering is wrapped in an error boundary", async () => {
   await mountPlugin();
   assert.equal(caught.length, 0);
@@ -549,11 +573,177 @@ test("no state updates after the panel closes", async () => {
   assert.equal(toasts.length, 0);
 });
 
-test("slider pending when panel closes does not write after", async () => {
+test("presets missing values do not break ranges", async () => {
   await mountPlugin();
+  backend.state = function () {
+    const st = freshBackend().state();
+    st.presets = st.presets.map((p, i) => (i % 2 ? { id: p.id, name: p.name } : { ...p, values: null }));
+    return st;
+  };
+  await remount();
+  await showAll();
+  assert.equal(caught.length, 0);
+  const a = slider("Actor fade");
+  assert.ok(a.props.max > a.props.min);
+  unmount();
+});
+
+const showAll = async () => {
   for (const b of all("ButtonItem").filter((n) => n.props.children === "Show")) b.props.onClick();
   await flush();
-  byLabel("SliderField", "Item fade").props.onChange(9);
+};
+const stopsOf = (sl) => sl.props.notchLabels.map((n) => n.label);
+const slider = (prefix) => {
+  const found = all("SliderField").find((n) => n.props.label.split(": ")[0] === prefix);
+  assert.ok(found, `slider ${prefix} not rendered`);
+  return found;
+};
+
+test("sliders stop at the real preset values, lowest to highest", async () => {
+  await mountPlugin();
+  await showAll();
+  const expect = {
+    "Actor fade": [["Low/Med", "High", "V.High"], "15"],
+    "Object fade": [["Low/Med", "High", "V.High"], "7.5"],
+    "Item fade": [["Low", "Med", "High", "V.High"], "4.5"],
+    "Grass fade": [["Low", "Med", "High", "V.High"], "5000"],
+    "Specular distance": [["Low", "Med", "High", "V.High"], "1000"],
+    "Light fade": [["Low", "Med", "High", "V.High"], "2500"],
+    "Shadow fade": [["Low", "Med", "High", "V.High"], "460"],
+    "Tree LOD fade": [["Low", "Med", "High", "V.High"], "26000"],
+    "Distant LOD": [["Low", "Med/High/V.High"], "50000"],
+    "Land quality": [["Low", "Med/High", "V.High"], "1"],
+    "Decals per frame": [["Low", "Med", "High/V.High"], "10"],
+    "Interior actor shadows": [["Low", "Med/High", "V.High"], "4"],
+    "Exterior actor shadows": [["Low/Med/High", "V.High"], "2"],
+    "Reflection blur amount": [["Low/Med", "High", "V.High"], "4"],
+  };
+  for (const [label, [stops, value]] of Object.entries(expect)) {
+    const sl = slider(label);
+    assert.deepEqual(stopsOf(sl), stops, label);
+    assert.deepEqual([sl.props.min, sl.props.max, sl.props.step, sl.props.notchCount], [0, stops.length - 1, 1, stops.length], label);
+    assert.equal(sl.props.label.split(": ")[1], value, label);
+    assert.equal(stopsOf(sl)[sl.props.value].length > 0, true);
+  }
+  assert.equal(slider("Actor fade").props.value, 2);
+  assert.equal(slider("Object fade").props.value, 1);
+  assert.equal(slider("Actor fade").props.description, "Low 2.5 · Med 2.5 · High 6 · V.High 15");
+  assert.equal(byLabel("DropdownItem", "Anti-aliasing").props.description, "Low Off · Med Off · High 4x MSAA · V.High 4x MSAA");
+  assert.equal(byLabel("ToggleField", "Shadows").props.description, "Low off · Med on · High on · V.High on");
+  assert.equal(byLabel("DropdownItem", "Resolution").props.description, undefined);
+  unmount();
+});
+
+test("a current value no preset uses gets its own stop", async () => {
+  await mountPlugin();
+  backend.values["TerrainManager.fBlockLoadDistanceLow"] = 80000;
+  backend.values["LOD.fLODFadeOutMultActors"] = 3;
+  await remount();
+  await showAll();
+  const d = slider("Distant LOD");
+  assert.deepEqual(stopsOf(d), ["Low", "Med/High/V.High", "Yours"]);
+  assert.equal(d.props.value, 2);
+  const a = slider("Actor fade");
+  assert.deepEqual(stopsOf(a), ["Low/Med", "Yours", "High", "V.High"]);
+  assert.equal(a.props.value, 1);
+  // Moving away from it and back to it writes the values.
+  a.props.onChange(3);
+  await new Promise((r) => setTimeout(r, 700));
+  await flush();
+  assert.deepEqual(lastSet(), { "LOD.fLODFadeOutMultActors": 15 });
+  unmount();
+});
+
+test("sliders write the stop's value once after settling", async () => {
+  await mountPlugin();
+  await showAll();
+  const before = calls.length;
+  for (const i of [0, 1, 0.6]) {
+    slider("Actor fade").props.onChange(i);
+    await flush();
+  }
+  assert.equal(slider("Actor fade").props.value, 1);
+  assert.equal(slider("Actor fade").props.label, "Actor fade: 6");
+  assert.equal(calls.length, before);
+  await new Promise((r) => setTimeout(r, 700));
+  await flush();
+  const writes = calls.slice(before).filter(([n]) => n === "set_values");
+  assert.deepEqual(writes, [["set_values", [{ "LOD.fLODFadeOutMultActors": 6 }]]]);
+  assert.equal(toasts.at(-1).body, "Actor fade: 6");
+  // Out-of-range and current-value events write nothing.
+  const n = calls.length;
+  slider("Actor fade").props.onChange(1);
+  slider("Actor fade").props.onChange(9);
+  slider("Actor fade").props.onChange(-3);
+  slider("Actor fade").props.onChange(NaN);
+  await new Promise((r) => setTimeout(r, 700));
+  await flush();
+  assert.equal(calls.length, n);
+  unmount();
+});
+
+test("without preset values, sliders fall back to the allowed range", async () => {
+  await mountPlugin();
+  backend.state = function () {
+    const st = freshBackend().state();
+    st.presets = st.presets.map((p) => ({ id: p.id, name: p.name }));
+    return st;
+  };
+  await remount();
+  await showAll();
+  const lq = slider("Land quality");
+  assert.deepEqual([lq.props.min, lq.props.max, lq.props.notchCount], [0.5, 2, undefined]);
+  lq.props.onChange(0.8500000001);
+  slider("Shadow fade").props.onChange(461.3);
+  slider("Item fade").props.onChange(NaN);
+  await new Promise((r) => setTimeout(r, 700));
+  await flush();
+  const writes = calls.filter(([n]) => n === "set_values").map(([, a]) => a[0]);
+  assert.deepEqual(writes.sort((x, y) => Object.keys(x)[0].localeCompare(Object.keys(y)[0])), [
+    { "Display.fShadowLODStartFade": 460 },
+    { "TerrainManager.fSplitDistanceMult": 0.85 },
+  ]);
+  unmount();
+});
+
+test("applying a preset updates every control live, checkmarks included", async () => {
+  await mountPlugin();
+  await showAll();
+  const pickPreset = async (name) => {
+    const d = byLabel("DropdownItem", "Preset");
+    d.props.onChange(d.props.rgOptions.find((o) => o.label === name));
+    await flush();
+  };
+  await pickPreset("Low");
+  assert.equal(byLabel("ToggleField", "Shadows").props.checked, false);
+  assert.equal(slider("Actor fade").props.label, "Actor fade: 2.5");
+  assert.equal(stopsOf(slider("Actor fade"))[slider("Actor fade").props.value], "Low/Med");
+  assert.equal(stopsOf(slider("Grass fade"))[slider("Grass fade").props.value], "Low");
+  let fx = byLabel("DropdownItem", "Screen effect");
+  assert.equal(fx.props.rgOptions[fx.props.selectedOption].label, "None");
+  await pickPreset("Medium");
+  assert.equal(byLabel("ToggleField", "Shadows").props.checked, true);
+  assert.equal(stopsOf(slider("Grass fade"))[slider("Grass fade").props.value], "Med");
+  assert.equal(slider("Decals per frame").props.label, "Decals per frame: 5");
+  const aa = byLabel("DropdownItem", "Anti-aliasing");
+  assert.equal(aa.props.rgOptions[aa.props.selectedOption].label, "Off");
+  const sq = byLabel("DropdownItem", "Shadow quality");
+  assert.equal(sq.props.rgOptions[sq.props.selectedOption].label, "Low (256)");
+  fx = byLabel("DropdownItem", "Screen effect");
+  assert.equal(fx.props.rgOptions[fx.props.selectedOption].label, "HDR");
+  assert.equal(byLabel("DropdownItem", "Preset").props.selectedOption, "medium");
+  await pickPreset("Very High");
+  assert.equal(stopsOf(slider("Actor fade"))[slider("Actor fade").props.value], "V.High");
+  assert.equal(slider("Tree LOD fade").props.label, "Tree LOD fade: 40000");
+  await pickPreset("Low");
+  assert.equal(byLabel("ToggleField", "Shadows").props.checked, false);
+  unmount();
+});
+
+test("slider pending when panel closes does not write after", async () => {
+  await mountPlugin();
+  await showAll();
+  slider("Item fade").props.onChange(0);
   await flush();
   const n = calls.length;
   unmount();
